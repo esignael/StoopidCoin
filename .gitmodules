@@ -1,0 +1,6 @@
+[submodule "falcon"]
+	path = falcon
+	url = git@github.com:esignael/falcon.git
+[submodule "dilithium"]
+	path = dilithium
+	url = git@github.com:esignael/dilithium.git
