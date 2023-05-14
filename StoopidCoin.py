@@ -21,21 +21,16 @@ class Listed (metaclass=MetaList):
 @dataclass
 class Header ():
     index: int
-    challange: int
-    nonce: int
-    prev_block: int
-    merkle_root: hash
+    challange: int = 3
+    nonce: int = 0
+    prev_block: int = 0
+    merkle_root: int = 0
 
     def __post_init__ (self):
         timestamp = time.time()
 
     def __str__ (self):
         return str(vars(self))
-
-
-@dataclass
-class Body ():
-    transactions: list
 
 
 @dataclass 
@@ -121,7 +116,7 @@ class MerkleTree ():
     def __finalize__ (self):
         if self.value is not None:
             return True
-        self.left.__finalize__() and self.right.finalize()
+        self.left.__finalize__() and self.right.__finalize__()
         self.value = hash(self)
         return True
 
