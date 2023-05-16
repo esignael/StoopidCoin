@@ -1,36 +1,75 @@
 from __future__ import annotations 
+import multiprocessing as mp
+import secrets as st
+import threading as tr
 import time
 import hashlib as hl
 from dataclasses import dataclass
 
 
-class MetaList (type):
+class MetaChain (type):
     def __new__ (cls, name, props, kwargs):
         cls = super().__new__(cls, name, props, kwargs)
-        cls.instances = []
+        cls._chain_lock = tr.Semaphore()
+        cls._chain = []
         return cls
 
     def __getitem__ (cls, index):
-        return cls.instances[index]
+        cls._chain_lock.acquire()
+        try:
+            return cls._chain[index]
+        finally:
+            cls._chain_lock.release()
 
+    def __setitem__ (cls, index, value):
+        cls._chain_lock.acquire()
+        try:
+            cls._chain[index] = value
+        finally:
+            cls._chain_lock.release()
 
-class Listed (metaclass=MetaList):
-    pass 
+    def __len__ (cls):
+        cls._chain_lock.acquire()
+        try:
+            return len(cls._chain)
+        finally:
+            cls._chain_lock.release()
 
 
 @dataclass
 class Header ():
     index: int
-    challange: int = 3
+    challenge: int = 3
     nonce: int = 0
     prev_block: int = 0
     merkle_root: int = 0
+    timestamp: float = None
 
     def __post_init__ (self):
-        timestamp = time.time()
+        if self.timestamp is None:
+            self.timestamp = time.time()
 
     def __str__ (self):
         return str(vars(self))
+
+    def __hash__ (self):
+        value = hl.sha512(str(self).encode()).digest()
+        return int.from_bytes(value, 'big')
+
+    def digest (self):
+        return hl.sha512(str(self).encode()).digest()
+
+    def intdigest (self):
+        return int.from_bytes(self.digest(), 'big')
+
+    def __mine__ (self):
+        while self.intdigest() >> (512 - self.challenge):
+            self.nonce = st.randbelow(1 << 512)
+        return
+
+    def is_proven (self):
+        return self.intdigest() >> (512 - self.challenge)
+
 
 
 @dataclass 
@@ -125,4 +164,79 @@ class MerkleTree ():
     
     def is_root (self):
         return self.parent is None 
+
+
+class Block ():
+    def __init__ (self, index, merkle, **kwargs):
+        self.data = merkle
+        self.head = Header(index, merkle_root=merkle.intdigest(), **kwargs)
+
+
+class BlockChain (metaclass=MetaChain):
+    _data_lock = mp.Lock()
+    reset_lock = tr.Semaphore()
+    _reset = tr.Event()
+    ledgers = []
+    ledger = MerkleTree()
+
+    def __new_ledger__ (self):
+        self._data_lock.acquire()
+        try:
+            old_ledger = self.ledger
+            self.ledger = MerkleTree()
+            return old_ledger
+        finally:
+            self._data_lock.release()
+
+    def __reset_check__ (self):
+        with self.reset_lock:
+            return self._reset
+
+    def __block_proof__ (self):
+        old_ledger = self.__new_ledger__()
+        pass
+
+    @classmethod
+    def consider (cls, headers):
+        if len(headers) <= len(cls):
+            return False
+        h = set(headers)
+        header = cls[::-1]
+        for header in cls[::-1]:
+            if header in h:
+                break
+        header.index
+
+        for header in headers[::-1]:
+            continue
+        #TODO put new header into the chain
+        return True
+
+    @classmethod
+    def run (cls):
+        while 0:
+            pass
+
+    @classmethod
+    def is_fresh (cls):
+        return not cls._reset.is_set()
+
+    @classmethod
+    def increment (cls):
+        old_ledger = cls.__new_ledger__()
+        header = Header()
+        while not header.is_proven():
+            if cls.is_fresh():
+                header.nonce = st.randbelow(1 << 512)
+                continue
+
+        pass
+
+    def add_transaction (self, transaction):
+        self._data_lock.acquire()
+        try:
+            self.ledger.append(transaction)
+        finally:
+            self._data_lock.release()
+
 
