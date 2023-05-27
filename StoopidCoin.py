@@ -1,6 +1,7 @@
 from __future__ import annotations 
 import multiprocessing as mp
 import secrets as st
+import queue as qu
 import threading as tr
 import time
 import hashlib as hl
@@ -35,10 +36,23 @@ class MetaChain (type):
         finally:
             cls._chain_lock.release()
 
+class LockableList ():
+    def __init__ (self, *args, **kwargs):
+        self.__list__ = list(*args, **kwargs)
+        self.__lock__ = tr.Semaphore()
+
+        @property
+        def lock (self):
+            return self.__lock__
+
+        @property
+        def list (self):
+            return self.__list
+
 
 @dataclass
 class Header ():
-    index: int
+    index: int = 0
     challenge: int = 3
     nonce: int = 0
     prev_block: int = 0
@@ -177,6 +191,11 @@ class BlockChain (metaclass=MetaChain):
     reset_lock = tr.Semaphore()
     _reset = tr.Event()
     ledgers = []
+    __header_lock__ = tr.Lock()
+    __ledger_lock__ = tr.Lock()
+    __queue__ = qu.Queue()
+    __queue_lock__ = tr.Lock()
+    __data_lock__ = tr.Lock()
     ledger = MerkleTree()
 
     def __new_ledger__ (self):
@@ -196,26 +215,81 @@ class BlockChain (metaclass=MetaChain):
         old_ledger = self.__new_ledger__()
         pass
 
-    @classmethod
-    def consider (cls, headers):
-        if len(headers) <= len(cls):
-            return False
-        h = set(headers)
-        header = cls[::-1]
-        for header in cls[::-1]:
-            if header in h:
-                break
-        header.index
+    def secure (func):
+        def wrapper (self, *args, **kwargs):
+            try:
+                return 
 
-        for header in headers[::-1]:
-            continue
-        #TODO put new header into the chain
-        return True
+    @classmethod
+    def __mine_block__ (cls, **kwargs):
+        header = Header(nonce=st.randbelow(1 << 512), **kwargs)
+        
+        pass
+
+    @classmethod
+    def __increment_chain__ (cls, ledger, header):
+        cls.__headers__.append(header)
+        cls.__ledgers__.append(ledger)
+        pass
+
+    @classmethod
+    def __update_chain__ (cls, header_list):
+        for header in cls[::-1]:
+            if header in header_list:
+                break
+        index = header.index
+        cls.__headers__[index:] = header_list[index:]
+        cls.__ledgers__[index:] = [None] * len(header_list[index:])
+
+    @classmethod
+    def consider (cls, header_list):
+        cls.__header_lock__.acquire()
+        cls.__ledger_lock__.acquire()
+        try:
+            if len(header_list) <= len(cls.__headers__):
+                return False
+            cls.__update_chain__(header_list)
+            return True
+        finally:
+            cls.__header_lock__.release()
+            cls.__ledger_lock__.release()
+    
+    @classmethod
+    def __update_ledger__ (cls, ledger):
+        cls.__queue_lock__.acquire()
+        cls.__data_lock__.acquire()
+        try:
+            if cls.__queue__.full():
+                return
+            cls.__queue__.put(ledger)
+        finally:
+            cls.__queue_lock__.release()
+            cls.__data_lock__.release()
+
+    @classmethod
+    def queue_nowait (cls, ledger):
+        try:
+            cls.__queue__.put_nowait(ledger)
+        except qu.Full:
+            return 
 
     @classmethod
     def run (cls):
-        while 0:
-            pass
+        while True:
+            cls.__header_lock__.acquire()
+            cls.__ledger_lock__.acquire()
+            try:
+                ledger = cls.__queue__.get()
+                header = cls.__mine_block__()
+                cls.__queue__.task_done()
+                if not header.is_proven():
+                    cls.queue_nowait(ledger)
+                    continue
+                cls.__increment_chain__(header, ledger)
+            finally:
+                cls.__header_lock__.release()
+                cls.__ledger_lock__.release()
+            cls.__update_ledger__()
 
     @classmethod
     def is_fresh (cls):
