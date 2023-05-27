@@ -1,0 +1,41 @@
+import dilithium.dilithium as dl
+from enum import Enum
+from dataclasses import dataclass
+
+
+@dataclass
+class Transaction ():
+    sender: bytes
+    receiver: bytes
+    scheme: str
+    amount: float
+    signature: bytes = None
+
+    @property
+    def backend (self):
+        schemes = {'D2': dl.Dilithium2,
+                   'D3': dl.Dilithium3,
+                   'D5': dl.Dilithium5
+                   }
+        return schemes[self.scheme]
+
+    def message (self):
+        values = vars(self)
+        return str({key: values[key] for key in values if key != 'signature'})
+
+    def sign (self, sk):
+        self.signature = self.backend.sign(sk, self.message().encode())
+
+    def verify (self):
+        return self.backend.verify(self.sender, self.message().encode(), self.signature)
+
+
+
+
+if __name__ == '__main__':
+    pk, sk = dl.Dilithium5.keygen()
+    m =b'wow, that really works'
+    a = Transaction(pk, pk, 'D5', 10.5)
+    print(a.message())
+    print(a.sign(sk))
+    print(a.verify())
