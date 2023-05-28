@@ -1,14 +1,9 @@
 from transaction import Transaction
-import requests
 import random
 import dilithium.dilithium as dl
 import falcon.falcon as fl
 import paho.mqtt.client as mqtt 
 from random import randrange, uniform
-import time
-import json
-
-
 
 class Wallet():
     schemes = {'D2': dl.Dilithium2,
@@ -27,6 +22,7 @@ class Wallet():
     
     mqttBroker ="mqtt.eclipseprojects.io"
     topic = 'simple_coin_wallet_test'
+
     def __init__(self,scheme_str):
         self.scheme_str = scheme_str
         self.scheme = self.schemes[scheme_str]
@@ -103,7 +99,7 @@ def manual_wallet(schemes_str):
     if response == "1":
         scheme = None
         while scheme not in ['D2', 'D3', 'D5','F2','F4','F8','F16','F32','F64','F128','F256','F512','F1024','Q']:
-            scheme = str(input("""Which Dilithium NIST level you want to use
+            scheme = str(input("""Which scheme you want to use
             D2:     Dilithium2
             D3:     Dilithium3
             D5:     Dilithium5
