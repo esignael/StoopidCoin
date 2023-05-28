@@ -18,7 +18,15 @@ class Transaction ():
                    'D3': dl.Dilithium3,
                    'D5': dl.Dilithium5,
                    'F2': fl.Falcon2,
+                   'F4': fl.Falcon4,
+                   'F8': fl.Falcon8,
+                   'F16': fl.Falcon16,
+                   'F32': fl.Falcon32,
+                   'F64': fl.Falcon64,
+                   'F128': fl.Falcon128,
+                   'F256': fl.Falcon256,
                    'F512': fl.Falcon512,
+                   'F1024': fl.Falcon1024
                    }
         return schemes[self.scheme]
 
@@ -31,9 +39,6 @@ class Transaction ():
 
     def verify (self):
         return self.backend.verify(self.sender, self.message().encode(), self.signature)
-
-
-
 
 if __name__ == '__main__':
     pk, sk = dl.Dilithium5.keygen()
