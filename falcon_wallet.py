@@ -24,6 +24,7 @@ IMPORTANT: save this credentials or you won't be able to recover your wallet\n
         # while f_version not in ["2", "4", "8", "16","32", "64","128", "256","512", "1024"]:
         #    f_version = input("""What version of falcon do you want to use? 2, 4, 8...., 1024\n""")
         #    generate_falcon_keys(f_version)
+        generate_falcon_keys(512)
     elif response == "2":
         file_path = input("Introduce your file\n")
         other_pk = input("To: introduce destination wallet address\n")
