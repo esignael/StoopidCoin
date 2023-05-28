@@ -18,6 +18,7 @@ class Transaction ():
                    'D3': dl.Dilithium3,
                    'D5': dl.Dilithium5,
                    'F2': fl.Falcon2,
+                   'F512': fl.Falcon512,
                    }
         return schemes[self.scheme]
 
@@ -39,11 +40,11 @@ if __name__ == '__main__':
     m =b'wow, that really works'
     a = Transaction(pk, pk, 'D5', 10.5)
     #print(a.message())
-    pk1, sk1 = fl.Falcon2.keygen()
-    r = fl.SecretKey(2)
+    pk1, sk1 = fl.Falcon512.keygen()
+    r = fl.SecretKey(512)
     sk2 = [r.f,r.g,r.F,r.G]
     print('now')
-    b = fl.Falcon2.sign(sk2, m)
+    b = fl.Falcon512.sign(sk2, m)
     print(b)
     print(r.verify(m, b))
     exit()
