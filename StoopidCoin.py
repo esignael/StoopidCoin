@@ -6,6 +6,7 @@ import threading as tr
 import time
 import hashlib as hl
 from dataclasses import dataclass
+from constants import *
 
 
 class MetaChain (type):
@@ -45,15 +46,11 @@ class LockableList ():
         def lock (self):
             return self.__lock__
 
-        @property
-        def list (self):
-            return self.__list
-
 
 @dataclass
 class Header ():
     index: int = 0
-    challenge: int = 3
+    challenge: int = INIT_CHALLENGE
     nonce: int = 0
     prev_block: int = 0
     merkle_root: int = 0
@@ -76,14 +73,17 @@ class Header ():
     def intdigest (self):
         return int.from_bytes(self.digest(), 'big')
 
+    def mine (self):
+        self.__mine__()
+        return self.nonce
+
     def __mine__ (self):
         while self.intdigest() >> (512 - self.challenge):
             self.nonce = st.randbelow(1 << 512)
         return
 
     def is_proven (self):
-        return self.intdigest() >> (512 - self.challenge)
-
+        return not (self.intdigest() >> (512 - self.challenge))
 
 
 @dataclass 
@@ -186,131 +186,82 @@ class Block ():
         self.head = Header(index, merkle_root=merkle.intdigest(), **kwargs)
 
 
-class BlockChain (metaclass=MetaChain):
-    _data_lock = mp.Lock()
-    reset_lock = tr.Semaphore()
-    _reset = tr.Event()
-    ledgers = []
-    __header_lock__ = tr.Lock()
-    __ledger_lock__ = tr.Lock()
-    __queue__ = qu.Queue()
-    __queue_lock__ = tr.Lock()
-    __data_lock__ = tr.Lock()
-    ledger = MerkleTree()
+class BlockChain ():
+    def __init__ (self, headers=None, ledgers=None):
+        self.__ledger_lock__ = tr.Lock()
+        self.__header_lock__ = tr.Lock()
+        self.step = tr.Event()
+        self.queue = qu.Queue()
+        self.queue.put(MerkleTree())
+        if ledgers is None:
+            ledgers = [None]
+        if headers is None:
+            headers = [Header(timestamp=0, nonce=INIT_NONCE)]
+        self.headers = headers
+        self.ledgers = ledgers
 
-    def __new_ledger__ (self):
-        self._data_lock.acquire()
-        try:
-            old_ledger = self.ledger
-            self.ledger = MerkleTree()
-            return old_ledger
-        finally:
-            self._data_lock.release()
-
-    def __reset_check__ (self):
-        with self.reset_lock:
-            return self._reset
-
-    def __block_proof__ (self):
-        old_ledger = self.__new_ledger__()
-        pass
-
-    def secure (func):
-        def wrapper (self, *args, **kwargs):
-            try:
-                return 
-
-    @classmethod
-    def __mine_block__ (cls, **kwargs):
-        header = Header(nonce=st.randbelow(1 << 512), **kwargs)
-        
-        pass
-
-    @classmethod
-    def __increment_chain__ (cls, ledger, header):
-        cls.__headers__.append(header)
-        cls.__ledgers__.append(ledger)
-        pass
-
-    @classmethod
-    def __update_chain__ (cls, header_list):
-        for header in cls[::-1]:
-            if header in header_list:
-                break
-        index = header.index
-        cls.__headers__[index:] = header_list[index:]
-        cls.__ledgers__[index:] = [None] * len(header_list[index:])
-
-    @classmethod
-    def consider (cls, header_list):
-        cls.__header_lock__.acquire()
-        cls.__ledger_lock__.acquire()
-        try:
-            if len(header_list) <= len(cls.__headers__):
+    def consensus (self, new_chain):
+        self.__header_lock__.acquire()
+        self.__ledger_lock__.acquire()
+        try: 
+            if len(new_chain) <= len(self.header):
                 return False
-            cls.__update_chain__(header_list)
+            self.__update_chain__(new_block)
             return True
         finally:
-            cls.__header_lock__.release()
-            cls.__ledger_lock__.release()
-    
-    @classmethod
-    def __update_ledger__ (cls, ledger):
-        cls.__queue_lock__.acquire()
-        cls.__data_lock__.acquire()
-        try:
-            if cls.__queue__.full():
-                return
-            cls.__queue__.put(ledger)
-        finally:
-            cls.__queue_lock__.release()
-            cls.__data_lock__.release()
+            self.__ledger_lock__.release()
+            self.__header_lock__.release()
 
-    @classmethod
-    def queue_nowait (cls, ledger):
+    def __update_chain__ (self, new_chain):
+        for header in self.headers[::-1]:
+            if header in new_chain:
+                break
+        index = header.index
+        self.headers[index:] = new_chain[index:]
+        self.ledgers[index:] = [None] * len(header_list[index:])
+
+    def add_transaction (self, transaction):
+        self.step.clear()
+        if not transaction.verify():
+            return False
+        current_ledger = self.queue.get()
+        current_ledger.append(transaction)
+        self.queue.put(current_ledger)
+        self.queue.task_done()
+        self.step.set()
+        return True
+
+    def queue_nowait (self, ledger):
         try:
-            cls.__queue__.put_nowait(ledger)
+            self.queue.put_nowait(ledger)
         except qu.Full:
             return 
 
-    @classmethod
-    def run (cls):
+    def main (self, callback):
+        thread = tr.Thread(target=self.mine, args=(callback,))
+        thread.start()
+
+    def mine (self, callback):
         while True:
-            cls.__header_lock__.acquire()
-            cls.__ledger_lock__.acquire()
+            self.__header_lock__.acquire()
             try:
-                ledger = cls.__queue__.get()
-                header = cls.__mine_block__()
-                cls.__queue__.task_done()
+                self.step.wait()
+                current_ledger = self.queue.get()
+                header = self._create_header_(current_ledger)
+                self.queue.task_done()
                 if not header.is_proven():
-                    cls.queue_nowait(ledger)
+                    self.queue_nowait(current_ledger)
                     continue
-                cls.__increment_chain__(header, ledger)
+                self.headers.append(header)
+                self.ledgers.append(current_ledger)
+                self.queue.put(MerkleTree())
+                if callback is not None:
+                    callback()
             finally:
-                cls.__header_lock__.release()
-                cls.__ledger_lock__.release()
-            cls.__update_ledger__()
+                self.__header_lock__.release()
 
-    @classmethod
-    def is_fresh (cls):
-        return not cls._reset.is_set()
-
-    @classmethod
-    def increment (cls):
-        old_ledger = cls.__new_ledger__()
-        header = Header()
-        while not header.is_proven():
-            if cls.is_fresh():
-                header.nonce = st.randbelow(1 << 512)
-                continue
-
-        pass
-
-    def add_transaction (self, transaction):
-        self._data_lock.acquire()
-        try:
-            self.ledger.append(transaction)
-        finally:
-            self._data_lock.release()
-
+    def _create_header_ (self, merkle):
+        prev = self.headers[-1].digest()
+        nonce = st.randbelow(1 << 512)
+        return Header(prev_block=prev, nonce=nonce, merkle_root=merkle)
 

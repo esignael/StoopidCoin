@@ -1,5 +1,6 @@
 import dilithium.dilithium as dl
 import falcon.falcon as fl
+import ast
 from enum import Enum
 from dataclasses import dataclass
 
@@ -11,6 +12,9 @@ class Transaction ():
     scheme: str
     amount: float
     signature: bytes = None
+
+    def __str__ (self):
+        return str(vars(self))
 
     @property
     def backend (self):
@@ -39,6 +43,11 @@ class Transaction ():
 
     def verify (self):
         return self.backend.verify(self.sender, self.message().encode(), self.signature)
+
+    @classmethod
+    def from_rep (cls, rep):
+        return cls(**ast.literal_eval(rep))
+
 
 if __name__ == '__main__':
     pk, sk = dl.Dilithium5.keygen()
