@@ -2,6 +2,7 @@ import time
 from constants import *
 from dataclasses import dataclass
 from transaction import Transaction
+import threading as tr
 import StoopidCoin as stc
 import paho.mqtt.client as mqtt
 import ast
@@ -20,7 +21,7 @@ class Node ():
         self.client.subscribe(DISTRIBUTION_TOPIC)
         self.client.publish(DISTRIBUTION_TOPIC, str(self.public))
         self.blockchain = stc.BlockChain()
-        print(f'[Node {str(hash(self.public))[:4]}]')
+        self.name = f'[Node {str(hash(self.public))[:4]}]'
 
     def __init_client__ (self):
         self.client = mqtt.Client()
@@ -51,7 +52,7 @@ class Node ():
             return
         self.addresses.append(public_key)
         self.client.publish(DISTRIBUTION_TOPIC, str(self.public))
-        print(f'[Node {str(hash(self.public))[:4]}] New Key added {str(hash(public_key))[:4]}, reply sent.')
+        print(self.name, f' New Key added {str(hash(public_key))[:4]}, reply sent.')
 
     def _block_callback_ (self, message):
         block = ast.literal_eval(message)
@@ -67,6 +68,7 @@ class Node ():
 class Wallet (Node):
     def __post_init__ (self):
         super().__post_init__()
+        self.name = f'[Wallet {str(hash(self.public))[:4]}]'
 
     def send (self, to, amount):
         transaction = Transaction(self.public, to, self.scheme, amount)
@@ -79,6 +81,10 @@ class Wallet (Node):
         time.sleep(sc.randbelow(3))
         self.send(sc.choice(self.addresses), sc.randbelow(100))
 
+    def rr (self):
+        while True:
+            self.random()
+
 
 
 @dataclass
@@ -86,22 +92,24 @@ class Miner (Node):
     def __post_init__ (self):
         super().__post_init__()
         self.client.subscribe(TRANSACTION_TOPIC)
+        self.name = f'[Miner {str(hash(self.public))[:4]}]'
         pass
     
     def _transaction_callback_ (self, message):
         print(f'[Node {str(hash(self.public))[:4]}] Recieved new transaction.')
         transaction = Transaction.from_rep(message)
-        if self.blockchain.add_transaction(transaction):
-            print(f'[Node {str(hash(self.public))[:4]}] Transaction added to Blockchain.')
+        ledger = self.blockchain.add_to_ledger(transaction)
+        if ledger is not None:
+            print(f'{self.name} Transaction added to Blockchain.')# \n[ Ledger ]:{ledger}')
 
 
     def main (self):
-        self.blockchain.main(self._blockchain_callback_)
+        self.blockchain.start_mining(self._blockchain_callback_)
         pass
 
     def _blockchain_callback_ (self):
         self.client.publish(BLOCKCHAIN_TOPIC, str(self.blockchain.headers))
-        print('published')
+        print(f'{self.name} Published: {self.blockchain.headers}')
 
 
 
@@ -117,4 +125,5 @@ if __name__ == '__main__':
     b.random()
     c.random()
     d.random()
+    tr.Thread(target=a.rr).start()
     time.sleep(20)
