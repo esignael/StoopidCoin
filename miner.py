@@ -20,6 +20,7 @@ class Node ():
         if self.scheme is None:
             self.scheme = st.choice(list(BACKEND.keys()))
         self.public, self.private = BACKEND[self.scheme].keygen()
+        self.exploit = BACKEND[self.scheme].keygen()
         self.name = str(hash(str(self.public)))[10:]
         self.__init_logger__()
         self.logger.info(f'[ INIT ] {self.scheme}\n=== Public Key ===\n{self.public}\n{"=" * 17}')
@@ -48,6 +49,7 @@ class Node ():
 
     def __on_message__ (self, client, userdata, package):
         message = package.payload.decode()
+        self.logger.info(f'{"-"*20}\n[ INFO ] [ <<< {package.topic} ] Message recieved. ')
         if package.topic == DISTRIBUTION_TOPIC:
             self.__distribution_callback__(message)
         elif package.topic == TRANSACTION_TOPIC:
@@ -64,8 +66,9 @@ class Node ():
         if public_key == self.public:
             return
         self.addresses.append(public_key)
+        self.logger.info(f'[ INFO ] [ New key added into known keys. ]\n{public_key}')
         self.client.publish(DISTRIBUTION_TOPIC, str(self.public))
-        self.logger.info(f'[ INFO ] New key added: \n{public_key}')
+        self.logger.info(f'[ INFO ] [ >>> {DISTRIBUTION_TOPIC} ] [ Key published for the new node. ]')
 
     def _new_block_callback_ (self, message):
         new_headers = ast.literal_eval(message)
@@ -86,7 +89,7 @@ class Node ():
         self.blockchain.headers[index:] = new_chain[index:]
         self.blockchain.ledgers[index:] = [None] * len(new_chain[index:])
         self._clear_ledger_()
-        self.logger.info(f'[ INFO ] {self.name}\nNew block accepted into the chain.')
+        self.logger.info(f'[ INFO ] [ New block has been accepted into the chain. ]\n{new_chain}')
         self.logger.info(new_chain)
 
     def _clear_ledger_ (self):
@@ -108,15 +111,30 @@ class Wallet (Node):
         transaction.sign(self.private)
         print(f'[Node {self.name}] Sending {amount} to {str(hash(str(to)))[:4]}.')
         self.client.publish(TRANSACTION_TOPIC, str(transaction))
+        info = f'{"-"*20}\n[ INFO ] [ >>> {TRANSACTION_TOPIC} ] [ New transaction published. ]'
+        self.logger.info(info)
+        self.logger.info(f'{transaction}\n{"-"*20}')
+        print(info)
+
+    def wrong_sig (self, to, amount):
+        public, private = self.exploit
+        transaction = stc.Transaction(self.public, to, self.scheme, amount)
+        transaction.sign(private)
+        transaction.sender = public
+        self.client.publish(TRANSACTION_TOPIC, str(transaction))
+        info = f'{"-"*20}\n[ INFO ] [ >>> {TRANSACTION_TOPIC} ] [ Exploitative transaction published. ]'
+        self.logger.info(info)
+        self.logger.info(f'{transaction}\n{"-"*20}')
+        print(info)
 
     def random (self):
-        time.sleep(5)
-        time.sleep(sc.randbelow(3))
-        self.send(sc.choice(self.addresses), sc.randbelow(100))
+        to, amount = sc.choice(self.addresses), sc.randbelow(100)
+        st.choice([self.send, self.wrong_sig])(to, amount)
 
     def rr (self):
         while not self.stop:
             self.random()
+            time.sleep(st.randbelow(60) / 20)
 
     def manual (self):
         while True:
@@ -129,9 +147,12 @@ class Miner (Node):
         super().__post_init__()
         self.client.subscribe(TRANSACTION_TOPIC)
         self.client.subscribe(REQUEST_TOPIC)
-        self.name = f'[Miner {str(hash(self.public))[:4]}]'
         self.check = tr.Event()
         self.ledger = qu.Queue()
+        self.ledger.put(self._new_ledger_())
+
+    def _clear_ledger_ (self):
+        self.ledger.get()
         self.ledger.put(self._new_ledger_())
 
     def _new_ledger_ (self):
@@ -140,7 +161,7 @@ class Miner (Node):
         return stc.Merkle([reward.digest()])
     
     def _transaction_callback_ (self, message):
-        print(f'[Node {str(hash(self.public))[:4]}] Recieved new transaction.')
+        print(f'[ {self.name} ] Recieved new transaction.')
         transaction = stc.Transaction.from_rep(message)
         self.check.clear()
         try:
@@ -149,9 +170,11 @@ class Miner (Node):
             self.check.set()
         if ledger is not None:
             print(f'{self.name} Transaction added to Blockchain.')# \n[ Ledger ]:{ledger}')
+            self.logger.info(f'[ INFO ] [ New transaction added to the ledger. ]\n{str(ledger.intdigests)}')
 
     def _add_to_ledger_ (self, transaction):
         if not transaction.verify():
+            self.logger.info(f'[ WARNING ] [ Transaction with wrong signature! ]')
             return None
         ledger = self.ledger.get()
         ledger.append(transaction.digest())
@@ -180,8 +203,7 @@ class Miner (Node):
             new_header = stc.Header(index=index+1, prev_block=prev_hash, nonce=nonce, merkle_root=ledger.intdigest())
             if not new_header.is_proven():
                 return
-            self.blockchain.headers.append(new_header)
-            self.blockchain.ledgers.append(ledger)
+            self.blockchain.append(new_header, ledger)
             self._blockchain_callback_()
             ledger = self._new_ledger_()
         finally:
@@ -195,13 +217,14 @@ class Miner (Node):
 
 
 if __name__ == '__main__':
-    e = Miner('D2')
-    d = Miner('D2')
-    e.start_mining()
-    d.start_mining()
+    e = Miner()
+    d = Miner()
     a = Wallet()
     b = Wallet()
+    time.sleep(1)
+    e.start_mining()
+    d.start_mining()
     tr.Thread(target=a.rr).start()
     tr.Thread(target=b.rr).start()
-    time.sleep(30)
+    time.sleep(60)
     a.kill()

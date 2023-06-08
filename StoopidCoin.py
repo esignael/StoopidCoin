@@ -1,4 +1,6 @@
-from __future__ import annotations 
+import ast
+import hashlib as ha
+import constants as ct
 import math
 import multiprocessing as mp
 import secrets as st
@@ -37,17 +39,6 @@ class Header ():
     def is_proven (self):
         return not (self.intdigest() >> (512 - self.challenge))
 
-
-class BlockChain ():
-    def __init__ (self, headers=None, ledgers=None):
-        self.chain_lock = self.__header_lock__ = tr.Lock()
-        self.check = self.step = tr.Event()
-        if ledgers is None:
-            ledgers = [None]
-        if headers is None:
-            headers = [Header(timestamp=0, nonce=INIT_NONCE)]
-        self.headers = headers
-        self.ledgers = ledgers
 
 class Merkle ():
     def __init__ (self, digests=None):
@@ -103,13 +94,19 @@ class Merkle ():
         return sha.digest()
 
 
-import dilithium.dilithium as dl
-import falcon.falcon as fl
-import ast
-from enum import Enum
-from dataclasses import dataclass
-import hashlib as ha
-import constants as ct
+class BlockChain ():
+    def __init__ (self, headers=None, ledgers=None):
+        if ledgers is None:
+            ledgers = [None]
+        if headers is None:
+            headers = [Header(timestamp=0, nonce=INIT_NONCE)]
+        self.headers = headers
+        self.ledgers = ledgers
+
+    def append (self, header, ledger):
+        self.headers.append(header)
+        self.ledgers.append(ledger)
+        pass
 
 
 @dataclass
